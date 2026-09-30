@@ -143,12 +143,14 @@ jobs:
         PKG_PATH_IN="${{ inputs.package-path }}"
         if [ -z "$PKG_PATH_IN" ]; then
           PKG_PATH="${{ inputs.path }}/target/debug/${{ inputs.name }}"
+          # Windows binaries carry the .exe suffix. Applied only to the
+          # inferred default: an explicit package-path is used verbatim,
+          # since it may name a non-executable or already carry .exe.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            PKG_PATH="$PKG_PATH.exe"
+          fi
         else
           PKG_PATH="$PKG_PATH_IN"
-        fi
-        # Windows binaries carry the .exe suffix.
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          PKG_PATH="$PKG_PATH.exe"
         fi
         tar -cvf ${{ inputs.name }}.tar $PKG_PATH
 
