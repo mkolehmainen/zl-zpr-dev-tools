@@ -36,6 +36,10 @@ on:
       features:
         required: false
         type: string
+      no-default-features: # Pass --no-default-features to every cargo invocation
+        required: false
+        type: boolean
+        default: false
     secrets:
       ZPR_CICD_RO_TOKEN:
         required: true
@@ -74,6 +78,9 @@ jobs:
 
     - name: Setup Git credentials
       timeout-minutes: 1
+      # bash explicitly: this step's syntax (chmod, redirects) is not pwsh,
+      # and the Windows runner's default shell is pwsh.
+      shell: bash
       run: |
         echo 'echo $ZPR_CICD_RO_TOKEN' > "$HOME/.git-askpass"
         chmod +x "$HOME/.git-askpass"
@@ -85,7 +92,7 @@ jobs:
       run: ${{ inputs.setup }}
 
     - name: Install libpcap-dev
-      if: ${{ inputs.needs-libpcap }}
+      if: ${{ inputs.needs-libpcap && runner.os == 'Linux' }}
       timeout-minutes: 5
       run: |
         echo 'set man-db/auto-update false' | sudo debconf-communicate
@@ -104,23 +111,44 @@ jobs:
       run: |
         brew install capnp
 
+    - name: Install capnp [Windows]
+      if: ${{ inputs.needs-capnp && runner.os == 'Windows' }}
+      timeout-minutes: 5
+      run: choco install -y capnproto
+
+    # aws-lc-sys needs NASM on Windows MSVC (CMake is preinstalled on
+    # windows-latest). choco does not shim nasm.exe, so add its install
+    # directory to the PATH for later steps.
+    - name: Install NASM [Windows]
+      if: ${{ runner.os == 'Windows' }}
+      timeout-minutes: 5
+      run: |
+        choco install -y nasm
+        Add-Content $env:GITHUB_PATH "C:\Program Files\NASM"
+
     - name: Build ${{ inputs.name }}
       id: build
       timeout-minutes: 5
       env:
         ZPR_CICD_RO_TOKEN: ${{ secrets.ZPR_CICD_RO_TOKEN }}
-      run: cargo build --verbose --features "${{ inputs.features }}"
+      run: cargo build --verbose ${{ inputs.no-default-features && '--no-default-features' || '' }} --features "${{ inputs.features }}"
 
     - name: Package ${{ inputs.name }}
       if: ${{ inputs.package }}
       working-directory: ./
       timeout-minutes: 1
+      # bash explicitly for the Windows runner (its default shell is pwsh).
+      shell: bash
       run: |
         PKG_PATH_IN="${{ inputs.package-path }}"
         if [ -z "$PKG_PATH_IN" ]; then
           PKG_PATH="${{ inputs.path }}/target/debug/${{ inputs.name }}"
         else
           PKG_PATH="$PKG_PATH_IN"
+        fi
+        # Windows binaries carry the .exe suffix.
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          PKG_PATH="$PKG_PATH.exe"
         fi
         tar -cvf ${{ inputs.name }}.tar $PKG_PATH
 
@@ -138,7 +166,7 @@ jobs:
     - name: Test ${{ inputs.name }}
       if: ${{ ! inputs.package }}
       timeout-minutes: 5
-      run: cargo test --verbose --features "${{ inputs.features }}"
+      run: cargo test --verbose ${{ inputs.no-default-features && '--no-default-features' || '' }} --features "${{ inputs.features }}"
 
     - name: Check format
       if: ${{ ! cancelled() && ! inputs.package }}
@@ -148,4 +176,4 @@ jobs:
     - name: Check warnings
       if: ${{ ! cancelled() && ! inputs.package && steps.build.outcome == 'success' }}
       timeout-minutes: 5
-      run: cargo build --all-targets --features "${{ inputs.features }}" --config 'build.rustflags = ["-D", "warnings"]'
+      run: cargo build --all-targets ${{ inputs.no-default-features && '--no-default-features' || '' }} --features "${{ inputs.features }}" --config 'build.rustflags = ["-D", "warnings"]'
