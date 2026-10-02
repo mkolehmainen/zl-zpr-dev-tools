@@ -1,7 +1,7 @@
 # devenv/Dockerfile
 
-This is the dockerfile used in our github workflows. In includes the built 
-thrift compuiler (for go and rust), a go installation and rust.
+This is the dockerfile used in our github workflows. It includes the Cap'n Proto
+compiler (`capnproto`), a Rust toolchain and Valkey (redis).
 
 This is container id `dev-env`
 
